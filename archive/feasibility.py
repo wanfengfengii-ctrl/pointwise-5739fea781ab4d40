@@ -9,10 +9,10 @@ class NoExplanation(ValueError):
     """整批观测无法由至多一条读值失配解释。"""
 
 
-def has_explanation(evidence: CaptureEvidence, hard: Iterable[Equation] = ()) -> bool:
-    """在所有硬条件成立时，判断是否存在全批至多一次失配。"""
+def observations_explainable(observations: Iterable[Equation], hard: Iterable[Equation] = ()) -> bool:
+    """在全部硬条件成立时，判断观测序列是否存在至多一次失配。"""
     required = tuple(hard)
-    observations = tuple((frame.mask, frame.value) for frame in evidence.frames)
+    observations = tuple(observations)
     if equations_consistent(chain(required, observations)):
         return True
 
@@ -22,3 +22,9 @@ def has_explanation(evidence: CaptureEvidence, hard: Iterable[Equation] = ()) ->
         if equations_consistent(kept):
             return True
     return False
+
+
+def has_explanation(evidence: CaptureEvidence, hard: Iterable[Equation] = ()) -> bool:
+    """在所有硬条件成立时，判断是否存在全批至多一次失配。"""
+    observations = tuple((frame.mask, frame.value) for frame in evidence.frames)
+    return observations_explainable(observations, hard)

@@ -1,6 +1,7 @@
 import json
 
 from admission.evidence import CaptureEvidence
+from plans.actions import ActionCatalog
 from plans.catalog import LoopCatalog
 from plans.model import SamplingPlan
 from recordings.events import FrameEvent
@@ -12,9 +13,19 @@ class EvidenceFormatError(ValueError):
 
 def encode_evidence(evidence: CaptureEvidence) -> str:
     plan = evidence.plan
+    actions = plan.actions
     return json.dumps(
         {
-            'plan': {'key': plan.key, 'bit_width': plan.bit_width, 'loops': plan.catalog.items()},
+            'plan': {
+                'key': plan.key,
+                'bit_width': plan.bit_width,
+                'loops': plan.catalog.items(),
+                'actions': (
+                    None
+                    if actions is None
+                    else [[action_id, mask, cost] for action_id, (mask, cost) in actions.items()]
+                ),
+            },
             'frames': [(frame.line, frame.frame_id, frame.mask, frame.value) for frame in evidence.frames],
         },
         ensure_ascii=True,
@@ -37,6 +48,14 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return body
 
 
+def _decode_actions(declaration: dict, width: int) -> ActionCatalog | None:
+    raw = declaration.get('actions')
+    if raw is None:
+        return None
+    rows = _rows(raw, 3, '测法表')
+    return ActionCatalog(width, tuple((row[0], (row[1], row[2])) for row in rows))
+
+
 def decode_evidence(payload: str) -> CaptureEvidence:
     try:
         if type(payload) is not str:
@@ -47,7 +66,7 @@ def decode_evidence(payload: str) -> CaptureEvidence:
         declaration = body['plan']
         width = declaration['bit_width']
         catalog = LoopCatalog(width, tuple(_rows(declaration['loops'], 2, '回路表')))
-        plan = SamplingPlan(declaration['key'], width, catalog)
+        plan = SamplingPlan(declaration['key'], width, catalog, _decode_actions(declaration, width))
         frames = tuple(FrameEvent(*row) for row in _rows(body['frames'], 4, '帧记录'))
         return CaptureEvidence(plan, frames)
     except (KeyError, TypeError, ValueError, RecursionError) as exc:

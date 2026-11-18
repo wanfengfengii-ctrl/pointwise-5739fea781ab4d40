@@ -11,7 +11,15 @@ python3 -B -S -m unittest discover -s tests -v
 python3 -B -S demo.py
 ```
 
-样例从 `samples/` 读取巡检录制，在临时目录建立归档。普通录制确定了 x=0、y=1。初次巡检只能确认联合值为 00、01、10。独立复测多取得一条 x=0，成果的联合值缩小为 00、01。演示关闭源和归档后，以原成果 ID 复核交接。
+样例从 `samples/` 读取巡检录制，在临时目录建立归档。普通录制确定了 x=0、y=1。初次巡检只能确认联合值为 00、01、10。独立复测多取得一条 x=0，成果的联合值缩小为 00、01。演示关闭源和归档后，以原成果 ID 复核交接。随后按 `samples/retest.jsonl` 与 `samples/retest_adaptive.jsonl` 演示补采：同一成果在预算 2 下无保证、预算 3 下取得最坏成本 3 的指令；换班用独立登记器以另一组测法再采同一文件；关闭来源及归档后重开，第一份成果仍按原测法复核成功。
+
+## 补采规划与交接复核
+
+值班员登记声明时可附带测法表 `actions={'B': (3, 1)}`：至多四项，键为非空测法 ID，值为掩码与 1～6 的整数成本，掩码按声明位宽校验。省略表示未声明测法，传 `{}` 表示明确的空表。测法随声明与物理帧一起冻结进成果 ID，之后的采集与活动登记不改变它；换班可用独立登记器为同一采样键登记不同测法，旧成果仍按原定义规划。
+
+`review.retest.plan_retest(archive, capture_id, mask1, mask2, budget)` 按固定成果生成补采指令。原批与一条补采路径上的全部独立读值共享一次失配额度，节点只列出可由同一源状态解释的读值分支；联合值唯一即为叶子，否则在剩余预算内选取最坏累计成本最低的测法，同价按测法 ID 字典序。预算为 0～6 的整数。返回可 JSON 往返的字典：`status` 为 `ok`、`no_guarantee`（预算内无保证）或 `unavailable`（成果未声明测法）；`ok` 时 `worst_cost` 为最低最坏累计成本，`tree` 为指令树，动作节点以 `action_id` 引用冻结测法，`branches` 以读值 `"0"`、`"1"` 为键，叶子形如 `{"value": [0, 1]}`，位序对应请求掩码顺序。明确的空表照常规划：目标已唯一则返回零成本叶子，否则 `no_guarantee`。
+
+`review.retest.verify_retest(archive, record, capture_id, mask1, mask2, budget)` 供下一班只凭归档与约定参数重算整份记录，逐项核对身份、掩码、预算、状态、成本与每个指令节点，结构或数值不符、请求无效或成果无法读取均返回 `False`。登记、采集或提交失败沿用原有错误并保全旧成果，旧记录在新班次依旧可核。
 
 ## 录制和计证口径
 
@@ -56,10 +64,11 @@ with SqliteArchive.open('station.sqlite3') as archive:
     assert result.matches
 ```
 
-- `PlanRegistry.register(key, bit_width, loops)` 固定声明，相同内容返回原对象，回路表顺序无关。允许显式传入空字典。`PlanConflict` 表示无效或冲突的声明，`get(key)` 对未登记键报 `KeyError`。登记表随调用者进程管理，已交付成果内嵌原声明。
+- `PlanRegistry.register(key, bit_width, loops)` 固定声明，相同内容返回原对象，回路表顺序无关。允许显式传入空字典。可选关键字 `actions` 登记至多四项测法，值为 `(掩码, 成本)` 二元组，成本取 1～6；省略表示未声明，`{}` 表示明确空表，测法映射顺序无关。`PlanConflict` 表示无效或冲突的声明，`get(key)` 对未登记键报 `KeyError`。登记表随调用者进程管理，已交付成果内嵌原声明。
 - `RecordingSource` 是一次性、可显式关闭的源。`read_recording(source)` 产生校验后的事件，`RecordingError.line` 保存已知的源行号。调用者用上下文管理源，可在提前终止时释放文件。
 - `capture(archive, plan, events)` 消费整批结束证据，成功时返回已提交的整数成果 ID。声明不匹配、身份冲突、无解释及写失败以 `CaptureRejected` 报告，录制错误使用 `RecordingError`。归档可选用 `before_commit` 回调做提交前检查，回调异常会回滚。回调收到的是事务内临时行号，成功提交后才成为成果 ID。独立读连接在提交前只能见到已提交成果。
 - `query(archive, capture_id, *masks)` 返回由整数元组组成的列表。成果不存在报 `CaptureNotFound`，损坏的归档数据报 `ArchiveError`，参数数目或掩码无效报 `QueryParameterError`。掩码按所选成果冻结的位宽校验。
 - `export(archive, capture_id, *masks)` 返回不可变交接记录，可通过 `as_dict()` 转为 JSON 可序列化数据。不可交付时报 `ExportError`。`verify_export` 用调用者约定的成果 ID 和掩码重算并比较身份、位宽、参数和联合值，通过 `matches` 与 `mismatches` 返回复核结果。
+- `plan_retest(archive, capture_id, mask1, mask2, budget)` 按固定成果生成补采指令记录，非法掩码或预算报 `QueryParameterError`，成果不存在报 `CaptureNotFound`，损坏证据报 `ArchiveError`。`verify_retest(archive, record, capture_id, mask1, mask2, budget)` 在重开归档后按约定重算并核对整份记录，返回布尔值。
 
 首次打开空归档建立 SQLite 表。重复打开会检查归档格式并保留既有成果。同一采样键可有多份成功成果，各有自己的 ID。用户录制和本地声明由用户管理，打开归档只操作选定数据库。对固定成果的查询依赖归档内的声明和证据，原录制和登记器可在交付后关闭。

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from plans.actions import ActionCatalog
 from plans.catalog import LoopCatalog
 from plans.masks import validate_bit_width
 
@@ -13,6 +14,7 @@ class SamplingPlan:
     key: str
     bit_width: int
     catalog: LoopCatalog
+    actions: ActionCatalog | None = None
 
     def __post_init__(self) -> None:
         if type(self.key) is not str or not self.key:
@@ -23,6 +25,10 @@ class SamplingPlan:
             raise PlanConflict(str(exc)) from exc
         if not isinstance(self.catalog, LoopCatalog) or self.catalog.bit_width != width:
             raise PlanConflict('回路表与采样位宽不一致')
+        if self.actions is not None and (
+            not isinstance(self.actions, ActionCatalog) or self.actions.bit_width != width
+        ):
+            raise PlanConflict('测法表与采样位宽不一致')
 
     def matches_start(self, key: str, bit_width: int) -> bool:
         return self.key == key and type(bit_width) is int and self.bit_width == bit_width
