@@ -1,0 +1,5 @@
+{"type":"start","key":"station-12","bit_width":3}
+{"type":"frame","frame_id":"z","mask":4,"value":0}
+{"type":"frame","frame_id":"x","mask":1,"value":0}
+{"type":"frame","frame_id":"y","mask":2,"value":0}
+{"type":"end"}
